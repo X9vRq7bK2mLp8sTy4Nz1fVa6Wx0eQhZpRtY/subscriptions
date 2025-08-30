@@ -1,0 +1,9 @@
+{
+    "name": "subscription-manager",
+    "version": "1.0.0",
+    "private": true,
+    "dependencies": {
+        "mongodb": "^4.17.2",
+        "web-push": "^3.5.0"
+    }
+}
