@@ -1,116 +1,126 @@
 const { MongoClient } = require('mongodb');
 const webPush = require('web-push');
 
-// MongoDB connection (cached for serverless)
-let cachedDb = null;
-async function connectToDatabase() {
-    if (cachedDb) return cachedDb;
-    const client = await MongoClient.connect(process.env.MONGODB_URI, { useUnifiedTopology: true });
-    cachedDb = client.db('subscriptions');
-    return cachedDb;
-}
-
-// Web Push setup
 webPush.setVapidDetails(
-    'mailto:rosters_loading7y@icloud.com',
+    'mailto:josh@example.com', // Replace with your email
     process.env.VAPID_PUBLIC_KEY,
     process.env.VAPID_PRIVATE_KEY
 );
 
-// API handler
-module.exports = async (req, res) => {
-    const db = await connectToDatabase();
-    const subscriptionsCollection = db.collection('subscriptions');
-    const pushSubscriptionsCollection = db.collection('push_subscriptions');
+let client;
+let db;
 
+async function connectToMongo() {
+    if (!client) {
+        try {
+            client = new MongoClient(process.env.MONGODB_URI, { useNewUrlParser: true, useUnifiedTopology: true });
+            await client.connect();
+            db = client.db('subscriptions');
+            console.log('Connected to MongoDB');
+        } catch (error) {
+            console.error('MongoDB connection error:', error);
+            throw error;
+        }
+    }
+    return db;
+}
+
+module.exports = async (req, res) => {
     try {
-        if (req.url === '/api/subscriptions' && req.method === 'GET') {
+        const db = await connectToMongo();
+        const subscriptionsCollection = db.collection('subscriptions');
+        const pushSubscriptionsCollection = db.collection('push_subscriptions');
+
+        if (req.method === 'GET' && req.path === '/api/subscriptions') {
             const subscriptions = await subscriptionsCollection.find({}).toArray();
             res.status(200).json(subscriptions);
-        } else if (req.url === '/api/subscriptions' && req.method === 'POST') {
+        } else if (req.method === 'POST' && req.path === '/api/subscriptions') {
             const newSub = req.body;
             newSub.createdAt = new Date();
             const result = await subscriptionsCollection.insertOne(newSub);
-            res.status(201).json(result.ops[0]);
-        } else if (req.url.startsWith('/api/subscriptions/') && req.method === 'PUT') {
-            const id = req.url.split('/')[3];
-            const updatedSub = req.body;
-            const previousSub = await subscriptionsCollection.findOne({ _id: require('mongodb').ObjectId(id) });
-            await subscriptionsCollection.updateOne(
-                { _id: require('mongodb').ObjectId(id) },
-                { $set: updatedSub }
-            );
-            if (updatedSub.cost > previousSub.cost) {
-                await sendPushNotification({
-                    title: 'Subscription Cost Updated 📈',
-                    body: `Your ${updatedSub.name} subscription has increased to ${new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(updatedSub.cost)}. 📈`
-                }, pushSubscriptionsCollection);
-            }
-            res.status(200).json({ message: 'Updated' });
-        } else if (req.url.startsWith('/api/subscriptions/') && req.method === 'DELETE') {
-            const id = req.url.split('/')[3];
-            const sub = await subscriptionsCollection.findOne({ _id: require('mongodb').ObjectId(id) });
-            await subscriptionsCollection.deleteOne({ _id: require('mongodb').ObjectId(id) });
-            await sendPushNotification({
-                title: 'Subscription Deleted 🗑️',
-                body: `Your ${sub.name} subscription for ${new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(sub.cost)} has been deleted. 🗑️`
-            }, pushSubscriptionsCollection);
-            res.status(200).json({ message: 'Deleted' });
-        } else if (req.url.startsWith('/api/subscriptions/') && req.url.endsWith('/toggle') && req.method === 'PUT') {
-            const id = req.url.split('/')[3];
-            const sub = await subscriptionsCollection.findOne({ _id: require('mongodb').ObjectId(id) });
-            const newStatus = sub.status === 'Due' ? 'Paid' : 'Due';
-            await subscriptionsCollection.updateOne(
-                { _id: require('mongodb').ObjectId(id) },
-                { $set: { status: newStatus } }
-            );
-            if (newStatus === 'Paid') {
-                await sendPushNotification({
-                    title: 'Subscription Paid ✅',
-                    body: `Your ${sub.name} subscription for ${new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(sub.cost)} has been paid! ✅`
-                }, pushSubscriptionsCollection);
-            }
-            res.status(200).json({ message: 'Toggled' });
-        } else if (req.url === '/api/subscribe' && req.method === 'POST') {
-            const subscription = req.body;
-            await pushSubscriptionsCollection.insertOne(subscription);
-            res.status(201).json({ message: 'Subscribed' });
-        } else if (req.url === '/api/check-due' && req.method === 'GET') {
-            const today = new Date(); today.setHours(0, 0, 0, 0);
-            const subscriptions = await subscriptionsCollection.find({}).toArray();
-            const dueSubscriptions = subscriptions.filter(sub => {
-                const dueDate = new Date(sub.dueDate); dueDate.setHours(0, 0, 0, 0);
-                const diffTime = dueDate - today;
-                const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-                return diffDays <= 7 || diffTime < 0;
+            await pushSubscriptionsCollection.find().forEach(sub => {
+                webPush.sendNotification(sub, JSON.stringify({
+                    title: 'Subscription Added 🎉',
+                    body: `Your ${newSub.name} subscription for ${new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(newSub.cost)} has been added!`
+                })).catch(error => console.error('Push notification error:', error));
             });
+            res.status(201).json({ _id: result.insertedId, ...newSub });
+        } else if (req.method === 'PUT' && req.path.includes('/toggle')) {
+            const id = req.path.split('/').pop();
+            const sub = await subscriptionsCollection.findOne({ _id: id });
+            const newStatus = sub.status === 'Due' ? 'Paid' : 'Due';
+            await subscriptionsCollection.updateOne({ _id: id }, { $set: { status: newStatus } });
+            const message = newStatus === 'Paid' ? {
+                title: 'Subscription Paid ✅',
+                body: `Your ${sub.name} subscription for ${new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(sub.cost)} has been paid!`
+            } : {
+                title: 'Subscription Marked Due ⏰',
+                body: `Your ${sub.name} subscription for ${new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(sub.cost)} is now due.`
+            };
+            await pushSubscriptionsCollection.find().forEach(sub => {
+                webPush.sendNotification(sub, JSON.stringify(message)).catch(error => console.error('Push notification error:', error));
+            });
+            res.status(200).json({ success: true });
+        } else if (req.method === 'PUT' && req.path.includes('/subscriptions/')) {
+            const id = req.path.split('/').pop();
+            const prevSub = await subscriptionsCollection.findOne({ _id: id });
+            const updatedSub = req.body;
+            await subscriptionsCollection.updateOne({ _id: id }, { $set: updatedSub });
+            if (prevSub.cost !== updatedSub.cost) {
+                await pushSubscriptionsCollection.find().forEach(sub => {
+                    webPush.sendNotification(sub, JSON.stringify({
+                        title: 'Subscription Increased 📈',
+                        body: `Your ${updatedSub.name} subscription has increased to ${new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(updatedSub.cost)}.`
+                    })).catch(error => console.error('Push notification error:', error));
+                });
+            }
+            res.status(200).json({ success: true });
+        } else if (req.method === 'DELETE' && req.path.includes('/subscriptions/')) {
+            const id = req.path.split('/').pop();
+            const sub = await subscriptionsCollection.findOne({ _id: id });
+            await subscriptionsCollection.deleteOne({ _id: id });
+            await pushSubscriptionsCollection.find().forEach(sub => {
+                webPush.sendNotification(sub, JSON.stringify({
+                    title: 'Subscription Deleted 🗑️',
+                    body: `Your ${sub.name} subscription for ${new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(sub.cost)} has been deleted.`
+                })).catch(error => console.error('Push notification error:', error));
+            });
+            res.status(200).json({ success: true });
+        } else if (req.method === 'POST' && req.path === '/api/subscribe') {
+            const subscription = req.body;
+            await pushSubscriptionsCollection.updateOne(
+                { endpoint: subscription.endpoint },
+                { $set: subscription },
+                { upsert: true }
+            );
+            res.status(201).json({ success: true });
+        } else if (req.method === 'GET' && req.path === '/api/check-due') {
+            const today = new Date(); today.setHours(0, 0, 0, 0);
+            const dueSoonDate = new Date(today);
+            dueSoonDate.setDate(today.getDate() + 7);
+            const dueSubscriptions = await subscriptionsCollection.find({
+                status: 'Due',
+                dueDate: { $lte: dueSoonDate.toISOString().split('T')[0] }
+            }).toArray();
             for (const sub of dueSubscriptions) {
-                const dueDate = new Date(sub.dueDate); dueDate.setHours(0, 0, 0, 0);
-                const diffTime = dueDate - today;
-                const diffDays = Math.ceil(diffTime / (1000 * 60 Saviour, in this case by a machine. It’s only a suggestion, it’s up to you. diffTime < 0
-                    ? { title: 'Subscription Overdue ⚠️', body: `Your ${sub.name} subscription for ${new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(sub.cost)} is ${Math.abs(diffDays)} days overdue. ⚠️` }
-                    : { title: 'Subscription Due Soon ⏰', body: `Your ${sub.name} subscription for ${new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(sub.cost)} is due in ${diffDays} days. ⏰` };
-                await sendPushNotification(notification, pushSubscriptionsCollection);
+                const dueDate = new Date(sub.dueDate);
+                const message = dueDate < today ? {
+                    title: 'Subscription Overdue ⚠️',
+                    body: `Your ${sub.name} subscription for ${new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(sub.cost)} is overdue.`
+                } : {
+                    title: 'Subscription Due Soon ⏰',
+                    body: `Your ${sub.name} subscription for ${new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(sub.cost)} is due in ${Math.ceil((dueDate - today) / (1000 * 60 * 60 * 24))} days.`
+                };
+                await pushSubscriptionsCollection.find().forEach(pushSub => {
+                    webPush.sendNotification(pushSub, JSON.stringify(message)).catch(error => console.error('Push notification error:', error));
+                });
             }
             res.status(200).json(dueSubscriptions);
         } else {
             res.status(404).json({ error: 'Not found' });
         }
     } catch (error) {
-        console.error(error);
-        res.status(500).json({ error: 'Server error' });
+        console.error('API error:', error);
+        res.status(500).json({ error: 'Internal server error' });
     }
 };
-
-// Send push notification to all subscribed users
-async function sendPushNotification(notification, pushSubscriptionsCollection) {
-    const subscriptions = await pushSubscriptionsCollection.find({}).toArray();
-    for (const sub of subscriptions) {
-        try {
-            await webPush.sendNotification(sub, JSON.stringify(notification));
-        } catch (error) {
-            console.error('Error sending push notification:', error);
-            await pushSubscriptionsCollection.deleteOne({ _id: sub._id }); // Remove invalid subscriptions
-        }
-    }
-}
