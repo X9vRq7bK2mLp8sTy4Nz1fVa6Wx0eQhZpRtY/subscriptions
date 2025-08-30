@@ -12,7 +12,7 @@ async function connectToDatabase() {
 
 // Web Push setup
 webPush.setVapidDetails(
-    'mailto:your-email@example.com',
+    'mailto:rosters_loading7y@icloud.com',
     process.env.VAPID_PUBLIC_KEY,
     process.env.VAPID_PRIVATE_KEY
 );
