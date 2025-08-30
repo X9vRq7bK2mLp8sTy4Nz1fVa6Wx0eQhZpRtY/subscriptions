@@ -5,6 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Josh's Subscriptions</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.6.0/css/all.min.css" integrity="sha512-Kc323vGBEqzTmouAECnVceyQqyqdsSiqLQISBL29aUW4U/M7pSPA/gEUZQqv1cwx4OnYxTxve5UMg5GT6L4JJg==" crossorigin="anonymous" referrerpolicy="no-referrer" />
+    <link rel="manifest" href="/manifest.json">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="theme-color" content="#667eea">
     <style>
         :root {
             --primary: #6C63FF; --danger: #FF4B4B; --success: #28a745;
@@ -240,7 +244,7 @@
             }
             const subscription = await registration.pushManager.subscribe({
                 userVisibleOnly: true,
-                applicationServerKey: 'BMrfFtMtL9IWl9vchDbbbYzJlbQwplyZ_fbv8Pei8gPNna_Dr1O-Ng7U7fy0LLqz5RKIxEytTIzyk6TLrcKbN30'
+                applicationServerKey: 'BKlbm5ePo-6WI6Numc7i5MgCDVTj-l4dt9kOrwgf1dDEFS4TbkoR58NrVCDuTt2Btr1wHwOOWMU-YAkHFRh-jCQ'
             });
             await fetch('/api/subscribe', {
                 method: 'POST',
@@ -273,7 +277,7 @@
         getAllEl('[data-close]').forEach(btn => btn.addEventListener('click', () => hideModal(btn.closest('.modal-backdrop'))));
 
         getEl('#pinForm').addEventListener('submit', async (e) => {
-            ee.preventDefault();
+            e.preventDefault();
             const pinInput = getEl('#pinInput');
             if (pinInput.value === CORRECT_PIN) {
                 isLocked = false;
@@ -368,7 +372,7 @@
             tab.classList.add('active');
             currentFilter = tab.dataset.filter;
             renderSubscriptions();
-        }));
+        });
 
         // Initial setup
         await fetchSubscriptions();
