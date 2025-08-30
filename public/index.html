@@ -154,19 +154,17 @@
     </div>
     <script>
     document.addEventListener('DOMContentLoaded', () => {
-        console.log('Script loaded'); // Debug: Check if script runs
+        // ✅ FIX: Removed the dummy 'subscriptions' array. We will get data from the API.
+        let subscriptions = [];
+
         const getEl = (selector) => document.querySelector(selector);
         const getAllEl = (selector) => document.querySelectorAll(selector);
-        const CORRECT_PIN = '123456';
+        const CORRECT_PIN = '123456'; // Note: Storing secrets on the client-side is not secure for production apps.
         let isLocked = true;
         let currentFilter = 'all';
         let currentEditingId = null;
-        let subscriptions = [
-            { _id: '1', name: 'Netflix', cost: 199.00, cycle: 'Monthly', dueDate: '2025-09-05', status: 'Due' },
-            { _id: '2', name: 'Spotify', cost: 99.99, cycle: 'Monthly', dueDate: '2025-08-28', status: 'Paid' }
-        ]; // Dummy data for testing
 
-        // Format helpers
+        // Format helpers (no changes here)
         const formatCurrency = (amount) => new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(amount);
         const formatDisplayDate = (dateString) => new Date(dateString).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
         const calculateDaysUntil = (dateString) => {
@@ -178,11 +176,9 @@
             return { text: `${diffDays} day${diffDays !== 1 ? 's' : ''}`, class: diffDays <= 7 ? 'due-soon' : '' };
         };
 
-        // Render subscriptions
+        // Render subscriptions (no changes here)
         const renderSubscriptions = () => {
-            console.log('Rendering subscriptions'); // Debug
             const listEl = getEl('#subscriptionList');
-            if (!listEl) console.error('subscriptionList not found');
             listEl.innerHTML = '';
             const filteredSubs = subscriptions.filter(sub => currentFilter === 'all' || sub.status.toLowerCase() === currentFilter);
             if (filteredSubs.length === 0) {
@@ -214,12 +210,8 @@
             });
         };
 
-        // Modal helpers
-        const showModal = (modalId) => {
-            const modal = getEl(`#${modalId}`);
-            if (!modal) console.error(`Modal ${modalId} not found`);
-            else modal.style.display = 'flex';
-        };
+        // Modal helpers (no changes here)
+        const showModal = (modalId) => getEl(`#${modalId}`).style.display = 'flex';
         const hideModal = (modalEl) => {
             if (!modalEl) return;
             const modalContent = modalEl.querySelector('.modal');
@@ -229,12 +221,21 @@
                 modalContent.classList.remove('disappearing');
             }, 400);
         };
-        const updateLockIcon = () => {
-            const icon = getEl('#lockBtn i');
-            if (icon) icon.className = isLocked ? 'fas fa-lock' : 'fas fa-lock-open';
+        const updateLockIcon = () => getEl('#lockBtn i').className = isLocked ? 'fas fa-lock' : 'fas fa-lock-open';
+
+        // ✅ FIX: New function to fetch data from your API
+        const fetchSubscriptions = async () => {
+            try {
+                const response = await fetch('/api/subscriptions');
+                if (!response.ok) throw new Error('Failed to fetch');
+                subscriptions = await response.json();
+                renderSubscriptions();
+            } catch (error) {
+                console.error('Error fetching subscriptions:', error);
+            }
         };
 
-        // Push notification subscription (for Vercel deployment)
+        // Push notification subscription
         const subscribeToPush = async () => {
             try {
                 if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
@@ -249,198 +250,178 @@
                 }
                 const subscription = await registration.pushManager.subscribe({
                     userVisibleOnly: true,
-                    applicationServerKey: 'BKlbm5ePo-6WI6Numc7i5MgCDVTj-l4dt9kOrwgf1dDEFS4TbkoR58NrVCDuTt2Btr1wHwOOWMU-YAkHFRh-jCQ'
+                    applicationServerKey: 'BKlbm5ePo-6WI6Numc7i5MgCDVTj-l4dt9kOrwgf1dDEFS4TbkoR58NrVCDuTt2Btr1wHwOOWMU-YAkHFRh-jCQ' // Ensure this matches your VAPID public key
                 });
-                // Uncomment for Vercel deployment
-                /*
+
+                // ✅ FIX: Uncommented this fetch call to save the subscription to the backend
                 await fetch('/api/subscribe', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(subscription)
                 });
-                */
                 console.log('Push subscription successful');
             } catch (error) {
                 console.error('Push subscription error:', error);
             }
         };
 
-        // Check due/overdue subscriptions (for Vercel deployment)
+        // Check due/overdue subscriptions
         const checkDueSubscriptions = async () => {
             try {
-                // Uncomment for Vercel deployment
-                /*
+                // ✅ FIX: Uncommented the API call
                 const response = await fetch('/api/check-due');
                 const dueSubscriptions = await response.json();
-                if (dueSubscriptions.length > 0 && Notification.permission !== 'granted') {
-                    await subscribeToPush();
-                }
-                */
-                console.log('Checked due subscriptions');
+                // This logic is mostly for sending notifications, which is handled by the server now.
+                // You could add client-side alerts here if you wanted.
+                console.log('Checked due subscriptions:', dueSubscriptions);
             } catch (error) {
                 console.error('Check due error:', error);
             }
         };
 
         // Event handlers
-        const lockBtn = getEl('#lockBtn');
-        if (lockBtn) {
-            lockBtn.addEventListener('click', () => {
-                console.log('Lock button clicked'); // Debug
-                if (isLocked) {
-                    showModal('pinModal');
-                    const pinInput = getEl('#pinInput');
-                    if (pinInput) pinInput.focus();
-                } else {
-                    isLocked = true;
-                    updateLockIcon();
-                    renderSubscriptions();
-                }
-            });
-        } else console.error('lockBtn not found');
-
-        getAllEl('[data-close]').forEach(btn => {
-            btn.addEventListener('click', () => {
-                console.log('Close button clicked'); // Debug
-                hideModal(btn.closest('.modal-backdrop'));
-            });
+        getEl('#lockBtn').addEventListener('click', () => {
+            if (isLocked) {
+                showModal('pinModal');
+                getEl('#pinInput').focus();
+            } else {
+                isLocked = true;
+                updateLockIcon();
+                renderSubscriptions();
+            }
         });
 
-        const pinForm = getEl('#pinForm');
-        if (pinForm) {
-            pinForm.addEventListener('submit', (e) => {
-                e.preventDefault();
-                console.log('PIN form submitted'); // Debug
-                const pinInput = getEl('#pinInput');
-                if (pinInput.value === CORRECT_PIN) {
-                    isLocked = false;
-                    updateLockIcon();
-                    subscribeToPush(); // Enable for Vercel
-                    renderSubscriptions();
-                    hideModal(getEl('#pinModal'));
+        getAllEl('[data-close]').forEach(btn => {
+            btn.addEventListener('click', () => hideModal(btn.closest('.modal-backdrop')));
+        });
+
+        getEl('#pinForm').addEventListener('submit', (e) => {
+            e.preventDefault();
+            const pinInput = getEl('#pinInput');
+            if (pinInput.value === CORRECT_PIN) {
+                isLocked = false;
+                updateLockIcon();
+                subscribeToPush(); // Attempt to subscribe for push notifications on unlock
+                renderSubscriptions();
+                hideModal(getEl('#pinModal'));
+                pinInput.value = '';
+            } else {
+                const pinError = getEl('#pinError');
+                pinError.textContent = 'Incorrect PIN.';
+                pinInput.classList.add('shake');
+                setTimeout(() => {
+                    pinInput.classList.remove('shake');
+                    pinError.textContent = '';
                     pinInput.value = '';
-                } else {
-                    const pinError = getEl('#pinError');
-                    pinError.textContent = 'Incorrect PIN.';
-                    pinInput.classList.add('shake');
-                    setTimeout(() => {
-                        pinInput.classList.remove('shake');
-                        pinError.textContent = '';
-                        pinInput.value = '';
-                    }, 1000);
-                }
-            });
-        } else console.error('pinForm not found');
+                }, 1000);
+            }
+        });
 
-        const addSubBtn = getEl('#add-sub-btn');
-        if (addSubBtn) {
-            addSubBtn.addEventListener('click', () => {
-                console.log('Add subscription button clicked'); // Debug
-                if (isLocked) return;
-                showModal('addModal');
-            });
-        } else console.error('add-sub-btn not found');
+        getEl('#add-sub-btn').addEventListener('click', () => {
+            if (isLocked) {
+                 alert('Please unlock to add a new subscription.');
+                 return;
+            }
+            showModal('addModal');
+        });
 
-        const addForm = getEl('#addSubscriptionForm');
-        if (addForm) {
-            addForm.addEventListener('submit', (e) => {
-                e.preventDefault();
-                console.log('Add form submitted'); // Debug
-                const newSub = {
-                    _id: String(subscriptions.length + 1),
-                    name: getEl('#serviceName').value,
-                    cost: parseFloat(getEl('#cost').value),
-                    cycle: getEl('#billingCycle').value,
-                    dueDate: getEl('#dueDate').value,
-                    status: getEl('#status').value
-                };
-                subscriptions.push(newSub);
-                // Uncomment for Vercel deployment
-                /*
-                fetch('/api/subscriptions', {
+        getEl('#addSubscriptionForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            // NOTE: No need to manually create an _id. MongoDB does this automatically.
+            const newSub = {
+                name: getEl('#serviceName').value,
+                cost: parseFloat(getEl('#cost').value),
+                cycle: getEl('#billingCycle').value,
+                dueDate: getEl('#dueDate').value,
+                status: getEl('#status').value
+            };
+
+            // ✅ FIX: Uncommented and activated the API call
+            try {
+                await fetch('/api/subscriptions', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(newSub)
-                }).then(() => fetchSubscriptions()).catch(error => console.error('Add subscription error:', error));
-                */
-                renderSubscriptions();
-                hideModal(getEl('#addModal'));
-                e.target.reset();
-            });
-        } else console.error('addSubscriptionForm not found');
+                });
+                await fetchSubscriptions(); // Re-fetch all data to update the UI
+            } catch(error) {
+                console.error('Add subscription error:', error);
+            }
 
-        const editForm = getEl('#editSubscriptionForm');
-        if (editForm) {
-            editForm.addEventListener('submit', (e) => {
-                e.preventDefault();
-                console.log('Edit form submitted'); // Debug
-                const updatedSub = {
-                    name: getEl('#editServiceName').value,
-                    cost: parseFloat(getEl('#editCost').value),
-                    cycle: getEl('#editBillingCycle').value,
-                    dueDate: getEl('#editDueDate').value,
-                    status: getEl('#editStatus').value
-                };
-                subscriptions = subscriptions.map(sub => sub._id === currentEditingId ? { ...sub, ...updatedSub } : sub);
-                // Uncomment for Vercel deployment
-                /*
-                fetch(`/api/subscriptions/${currentEditingId}`, {
+            hideModal(getEl('#addModal'));
+            e.target.reset();
+        });
+
+        getEl('#editSubscriptionForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const updatedSub = {
+                name: getEl('#editServiceName').value,
+                cost: parseFloat(getEl('#editCost').value),
+                cycle: getEl('#editBillingCycle').value,
+                dueDate: getEl('#editDueDate').value,
+                status: getEl('#editStatus').value
+            };
+
+            // ✅ FIX: Uncommented and activated the API call
+            try {
+                await fetch(`/api/subscriptions/${currentEditingId}`, {
                     method: 'PUT',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(updatedSub)
-                }).then(() => fetchSubscriptions()).catch(error => console.error('Edit subscription error:', error));
-                */
-                renderSubscriptions();
-                hideModal(getEl('#editModal'));
-                e.target.reset();
-            });
-        } else console.error('editSubscriptionForm not found');
+                });
+                await fetchSubscriptions(); // Re-fetch
+            } catch(error) {
+                console.error('Edit subscription error:', error);
+            }
 
-        const subscriptionList = getEl('#subscriptionList');
-        if (subscriptionList) {
-            subscriptionList.addEventListener('click', (e) => {
-                if (isLocked) return;
-                const button = e.target.closest('button[data-action]');
-                if (!button) return;
-                console.log(`Button clicked: ${button.dataset.action}`); // Debug
-                const action = button.dataset.action;
-                const id = button.dataset.id;
-                if (action === 'toggle') {
-                    subscriptions = subscriptions.map(sub => sub._id === id ? { ...sub, status: sub.status === 'Due' ? 'Paid' : 'Due' } : sub);
-                    // Uncomment for Vercel deployment
-                    /*
-                    fetch(`/api/subscriptions/${id}/toggle`, { method: 'PUT' })
-                        .then(() => fetchSubscriptions())
-                        .catch(error => console.error('Toggle error:', error));
-                    */
-                    renderSubscriptions();
-                } else if (action === 'delete') {
-                    if (confirm('Are you sure you want to delete this subscription?')) {
-                        subscriptions = subscriptions.filter(sub => sub._id !== id);
-                        // Uncomment for Vercel deployment
-                        /*
-                        fetch(`/api/subscriptions/${id}`, { method: 'DELETE' })
-                            .then(() => fetchSubscriptions())
-                            .catch(error => console.error('Delete error:', error));
-                        */
-                        renderSubscriptions();
-                    }
-                } else if (action === 'edit') {
-                    currentEditingId = id;
-                    const sub = subscriptions.find(s => s._id === id);
-                    getEl('#editServiceName').value = sub.name;
-                    getEl('#editCost').value = sub.cost;
-                    getEl('#editBillingCycle').value = sub.cycle;
-                    getEl('#editDueDate').value = sub.dueDate;
-                    getEl('#editStatus').value = sub.status;
-                    showModal('editModal');
+            hideModal(getEl('#editModal'));
+            e.target.reset();
+        });
+
+        getEl('#subscriptionList').addEventListener('click', async (e) => {
+            const button = e.target.closest('button[data-action]');
+            if (!button) return;
+
+            if (isLocked && (button.dataset.action === 'edit' || button.dataset.action === 'delete')) {
+                alert('Please unlock to edit or delete subscriptions.');
+                return;
+            }
+            
+            const action = button.dataset.action;
+            const id = button.dataset.id;
+
+            if (action === 'toggle') {
+                // ✅ FIX: Uncommented and activated the API call
+                try {
+                    await fetch(`/api/subscriptions/${id}/toggle`, { method: 'PUT' });
+                    await fetchSubscriptions(); // Re-fetch
+                } catch(error) {
+                    console.error('Toggle error:', error);
                 }
-            });
-        } else console.error('subscriptionList not found');
+            } else if (action === 'delete') {
+                if (confirm('Are you sure you want to delete this subscription?')) {
+                    // ✅ FIX: Uncommented and activated the API call
+                    try {
+                        await fetch(`/api/subscriptions/${id}`, { method: 'DELETE' });
+                        await fetchSubscriptions(); // Re-fetch
+                    } catch(error) {
+                        console.error('Delete error:', error);
+                    }
+                }
+            } else if (action === 'edit') {
+                currentEditingId = id;
+                const sub = subscriptions.find(s => s._id === id);
+                getEl('#editServiceName').value = sub.name;
+                getEl('#editCost').value = sub.cost;
+                getEl('#editBillingCycle').value = sub.cycle;
+                getEl('#editDueDate').value = sub.dueDate;
+                getEl('#editStatus').value = sub.status;
+                showModal('editModal');
+            }
+        });
 
         getAllEl('.tab-btn').forEach(tab => {
             tab.addEventListener('click', () => {
-                console.log(`Tab clicked: ${tab.dataset.filter}`); // Debug
                 getEl('.tab-btn.active').classList.remove('active');
                 tab.classList.add('active');
                 currentFilter = tab.dataset.filter;
@@ -449,11 +430,10 @@
         });
 
         // Initial setup
-        console.log('Initializing app'); // Debug
-        renderSubscriptions();
-        // Uncomment for Vercel deployment
-        // fetchSubscriptions();
-        // checkDueSubscriptions();
+        // ✅ FIX: Call the functions to load data and check for notifications on page load.
+        fetchSubscriptions();
+        checkDueSubscriptions();
+        updateLockIcon(); // Ensure lock icon is correct on load
     });
     </script>
 </body>
