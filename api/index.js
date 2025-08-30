@@ -2,7 +2,7 @@ const { MongoClient } = require('mongodb');
 const webPush = require('web-push');
 
 webPush.setVapidDetails(
-    'mailto:josh@example.com', // Replace with your email
+    'mailto:rosters_loading7y@icloud.com', // Replace with your email
     process.env.VAPID_PUBLIC_KEY,
     process.env.VAPID_PRIVATE_KEY
 );
