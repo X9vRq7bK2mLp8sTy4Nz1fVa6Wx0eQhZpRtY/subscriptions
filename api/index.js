@@ -15,7 +15,7 @@ async function connectToMongo() {
     try {
         const client = new MongoClient(process.env.MONGODB_URI, { useNewUrlParser: true, useUnifiedTopology: true });
         await client.connect();
-        db = client.db('subscriptions'); // You can name your database here
+        db = client.db('subscriptions');
         console.log('Connected to MongoDB');
         return db;
     } catch (error) {
@@ -43,27 +43,49 @@ module.exports = async (req, res) => {
             }
             newSub.createdAt = new Date();
             const result = await subscriptionsCollection.insertOne(newSub);
-
-            // Send push notification
             const notificationPayload = JSON.stringify({
                 title: 'Subscription Added 🎉',
                 body: `Your ${newSub.name} subscription for ${new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(newSub.cost)} has been added!`
             });
             const pushSubscriptions = await pushSubscriptionsCollection.find().toArray();
-            for (const sub of pushSubscriptions) {
-                webPush.sendNotification(sub, notificationPayload).catch(error => console.error(`Push notification error for ${sub.endpoint}:`, error.body || error));
-            }
-
+            const notificationPromises = pushSubscriptions.map(async (sub) => {
+                try {
+                    await webPush.sendNotification(sub, notificationPayload);
+                    console.log(`Notification sent to ${sub.endpoint}`);
+                } catch (error) {
+                    console.error(`Push notification error for ${sub.endpoint}:`, error);
+                    if (error.statusCode === 410) {
+                        await pushSubscriptionsCollection.deleteOne({ endpoint: sub.endpoint });
+                        console.log(`Removed stale subscription: ${sub.endpoint}`);
+                    }
+                }
+            });
+            await Promise.all(notificationPromises);
             res.status(201).json({ _id: result.insertedId, ...newSub });
         } else if (req.method === 'PUT' && path.startsWith('/api/subscriptions/') && path.endsWith('/toggle')) {
             const id = path.split('/')[3];
             const sub = await subscriptionsCollection.findOne({ _id: new ObjectId(id) });
             if (!sub) return res.status(404).json({ error: 'Subscription not found' });
-
             const newStatus = sub.status === 'Due' ? 'Paid' : 'Due';
             await subscriptionsCollection.updateOne({ _id: new ObjectId(id) }, { $set: { status: newStatus } });
-
-            // Send push notification logic follows...
+            const notificationPayload = JSON.stringify({
+                title: `Subscription Status Updated`,
+                body: `Your ${sub.name} subscription is now marked as ${newStatus}.`
+            });
+            const pushSubscriptions = await pushSubscriptionsCollection.find().toArray();
+            const notificationPromises = pushSubscriptions.map(async (sub) => {
+                try {
+                    await webPush.sendNotification(sub, notificationPayload);
+                    console.log(`Notification sent to ${sub.endpoint}`);
+                } catch (error) {
+                    console.error(`Push notification error for ${sub.endpoint}:`, error);
+                    if (error.statusCode === 410) {
+                        await pushSubscriptionsCollection.deleteOne({ endpoint: sub.endpoint });
+                        console.log(`Removed stale subscription: ${sub.endpoint}`);
+                    }
+                }
+            });
+            await Promise.all(notificationPromises);
             res.status(200).json({ success: true, newStatus });
         } else if (req.method === 'PUT' && path.startsWith('/api/subscriptions/')) {
             const id = path.split('/').pop();
@@ -72,23 +94,27 @@ module.exports = async (req, res) => {
             res.status(200).json({ success: true });
         } else if (req.method === 'DELETE' && path.startsWith('/api/subscriptions/')) {
             const id = path.split('/').pop();
-
-            // ✅ FIX: Fetch the subscription details *before* deleting it.
             const subToDelete = await subscriptionsCollection.findOne({ _id: new ObjectId(id) });
             if (!subToDelete) return res.status(404).json({ error: 'Subscription not found' });
-            
             await subscriptionsCollection.deleteOne({ _id: new ObjectId(id) });
-
-            // Now use `subToDelete` for the notification payload.
             const notificationPayload = JSON.stringify({
                 title: 'Subscription Deleted 🗑️',
                 body: `Your ${subToDelete.name} subscription for ${new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(subToDelete.cost)} has been deleted.`
             });
             const pushSubscriptions = await pushSubscriptionsCollection.find().toArray();
-            for (const sub of pushSubscriptions) {
-                 webPush.sendNotification(sub, notificationPayload).catch(error => console.error(`Push notification error for ${sub.endpoint}:`, error.body || error));
-            }
-            
+            const notificationPromises = pushSubscriptions.map(async (sub) => {
+                try {
+                    await webPush.sendNotification(sub, notificationPayload);
+                    console.log(`Notification sent to ${sub.endpoint}`);
+                } catch (error) {
+                    console.error(`Push notification error for ${sub.endpoint}:`, error);
+                    if (error.statusCode === 410) {
+                        await pushSubscriptionsCollection.deleteOne({ endpoint: sub.endpoint });
+                        console.log(`Removed stale subscription: ${sub.endpoint}`);
+                    }
+                }
+            });
+            await Promise.all(notificationPromises);
             res.status(200).json({ success: true });
         } else if (req.method === 'POST' && path === '/api/subscribe') {
             const subscription = req.body;
@@ -97,10 +123,20 @@ module.exports = async (req, res) => {
                 { $set: subscription },
                 { upsert: true }
             );
+            const testPayload = JSON.stringify({
+                title: 'Subscription Successful',
+                body: 'You are now subscribed to notifications!'
+            });
+            try {
+                await webPush.sendNotification(subscription, testPayload);
+                console.log('Test notification sent to:', subscription.endpoint);
+            } catch (error) {
+                console.error('Test notification error:', error);
+            }
             res.status(201).json({ success: true });
+        } else if (req.method === 'GET' && path === '/api/vapid-public-key') {
+            res.status(200).json({ publicKey: process.env.VAPID_PUBLIC_KEY });
         } else if (req.method === 'GET' && path === '/api/check-due') {
-            // This endpoint can be triggered by a cron job for daily checks
-            // For now, it's called on page load by the client
             res.status(200).json({ message: 'Due check initiated by client.' });
         } else {
             res.status(404).json({ error: 'Route not found' });
